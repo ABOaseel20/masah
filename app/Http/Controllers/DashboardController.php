@@ -11,26 +11,36 @@ class DashboardController extends Controller
 {
     public function index()
     {
+        // إجمالي الحجوزات
         $totalBookings = Booking::count();
-        $totalRevenue  = Payment::sum('amount');
 
+        // إجمالي الإيرادات
+        $totalRevenue = Payment::sum('amount');
+
+        // إيرادات اليوم
         $todayRevenue = Payment::whereDate('payment_date', Carbon::today())
             ->sum('amount');
 
+        // إيرادات الشهر الحالي
         $monthRevenue = Payment::whereMonth('payment_date', Carbon::now()->month)
             ->whereYear('payment_date', Carbon::now()->year)
             ->sum('amount');
 
-        // رسم بياني الشهر الحالي
-        $dailyData = Payment::selectRaw('DAY(payment_date) as day, SUM(amount) as total')
-            ->whereMonth('payment_date', Carbon::now()->month)
+        // ===== رسم بياني للشهر الحالي (حل آمن بدون DAY()) =====
+        $paymentsThisMonth = Payment::whereMonth('payment_date', Carbon::now()->month)
             ->whereYear('payment_date', Carbon::now()->year)
-            ->groupBy('day')
-            ->orderBy('day')
             ->get();
 
-        $chartLabels = $dailyData->pluck('day');
-        $chartData   = $dailyData->pluck('total');
+        $dailyData = $paymentsThisMonth
+            ->groupBy(function ($item) {
+                return Carbon::parse($item->payment_date)->day;
+            })
+            ->map(function ($day) {
+                return $day->sum('amount');
+            });
+
+        $chartLabels = $dailyData->keys();
+        $chartData   = $dailyData->values();
 
         // مناسبات قادمة خلال 7 أيام
         $upcomingBookings = Booking::with('client')
@@ -43,7 +53,7 @@ class DashboardController extends Controller
             ->get();
 
         // أفضل قاعة هذا الشهر
-        $topHall = Hall::withCount(['bookings' => function($q){
+        $topHall = Hall::withCount(['bookings' => function ($q) {
             $q->whereMonth('event_date', now()->month);
         }])->orderByDesc('bookings_count')->first();
 
